@@ -23,7 +23,8 @@ class WebSocket(WebSocketServerFactory):
 		self.generatedSnakes = []
 		self.maxSnakeId = 100
 		self.timestamp = 0
-		self.snakeTravelSpeed = 5.0
+		self.snakeTravelSpeed = 10
+		self.generatedFood = []
 
 	def startServer(self):
 		self.notify.setNotifyInfo('Preparing the gameserver to accept connections...')

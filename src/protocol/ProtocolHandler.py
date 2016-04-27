@@ -1,12 +1,17 @@
 from autobahn.asyncio.websocket import WebSocketServerProtocol
 from src.protocol.Connection import Connection
+from src.protocol.PacketInitial import PacketInitial
+from src.protocol.PacketCreateSnake import PacketCreateSnake
+from src.protocol.PacketPong import PacketPong
+from src.protocol.PacketUpdatePosition import PacketUpdatePosition
+from src.protocol.PacketCreateFood import PacketCreateFood
 from src.packet.BufferTypes import *
 from src.packet.ArrayBuffer import ArrayBuffer
-import struct, re, time, random, math
+import struct, re, time, random, math, array
 
 class ProtocolHandler(WebSocketServerProtocol):
 	current_connection = None
-	current_cellId = 0
+	current_snakeId = 0
 
 	def onConnect(self, request):
 		self.current_connection = Connection(request)
@@ -23,34 +28,47 @@ class ProtocolHandler(WebSocketServerProtocol):
 
 		buffer = ArrayBuffer()
 		buffer.setData(payload)
-		data = buffer.getData()
+		value = buffer.unpackData(int8)[0]
 
-		if data.find(b'=' or b'==') != -1:
-			for char in data:
-				buffer.packData(string, b'' + bytearray(char))
+		if value == 115:
+			# Send the initial startup packet.
+			self.initial = PacketInitial(self, isBinary)
+			self.initial.recieve(payload)
+			self.initial.create()
 
-		self.sendMessage(buffer.getData(), isBinary)
-		buffer.clear()
+			# Create the snakes enter defaults
+			(x, y) = self.getRandomSpawnPoint()
+			speed = gameserver.snakeTravelSpeed
+			snakeId = self.allocateNewSnakeId()
+			self.current_snakeId = snakeId
+			angle = random.randint(0, 360) # TODO!
+			# TODO! correctly pack the name field.
+			values = [snakeId, x, y, angle, speed, int(self.initial.skinId[0]), len(self.initial.username), self.initial.username] # The name is a place holder, for now.
 
-		buffer = ArrayBuffer()
-		buffer.packData(uint8, 16)
-		buffer.packData(uint16, 0)
-		buffer.packData(uint32, 1)
-		buffer.packData(uint32, 0)
-		buffer.packData(uint32, 0)
-		buffer.packData(uint16, 15)
-		buffer.packData(uint8, 1)
-		buffer.packData(uint8, 1)
-		buffer.packData(uint8, 1)
-		buffer.packData(uint8, 0) # flags
-		buffer.packData(uint32, 0) # skipbytes
-		buffer.packData(uint8, 0)
-		buffer.packData(uint16, 0)
-		buffer.packData(uint32, 0)
-		buffer.packData(uint32, 0)
-		self.sendMessage(buffer.getData(), isBinary)
+			# Create a new snake.
+			self.newSnake = PacketCreateSnake(self, isBinary)
+			self.newSnake.recieve(payload)
+			self.newSnake.create(values)
 
-		print (payload)
+			# Setup food, leaderboard etc...
+			self.startSpawningFood(payload, isBinary)
+		elif value == 112:
+			self.pong = PacketPong(self, isBinary)
+			self.pong.recieve(payload)
+			self.pong.create()
+		elif value == 101:
+			for snake in gameserver.generatedSnakes:
+				if snake.id == self.current_snakeId:
+					self.positionUpdater = PacketUpdatePosition(self, isBinary)
+					self.positionUpdater.recieve(buffer)
+					self.positionUpdater.create(snake)
+		else:
+			print (value)
+
+	def startSpawningFood(self, payload, isBinary):
+		self.foodSpawner = PacketCreateFood(self, isBinary)
+		self.foodSpawner.recieve(payload)
+		self.foodSpawner.create()
 
 	def getTimestamp(self):
 		pass
@@ -62,7 +80,7 @@ class ProtocolHandler(WebSocketServerProtocol):
 		return gameserver.timestamp
 
 	def allocateNewSnakeId(self):
-		return random.randint(0, gameserver.maxCellIds)
+		return random.randint(0, gameserver.maxSnakeId)
 
 	def getRandomSpawnPoint(self):
 		x = random.randint(0, 70000)
@@ -74,6 +92,6 @@ class ProtocolHandler(WebSocketServerProtocol):
 		self.current_connection = None
 
 		# reset the clients snake to None
-		for cell in gameserver.generatedCells:
-			if cell.id == self.current_cellId:
-				gameserver.generatedCells.remove(cell)
+		for snake in gameserver.generatedSnakes:
+			if snake.id == self.current_snakeId:
+				gameserver.generatedSnakes.remove(snake)
