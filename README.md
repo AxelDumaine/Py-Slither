@@ -1,4 +1,4 @@
-# PY-Slither
+# Py-Slither
 * A python server implementation of the slither.io protocol.
 
 # Developers:
